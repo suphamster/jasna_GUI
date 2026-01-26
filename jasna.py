@@ -986,6 +986,8 @@ class MosaicRemoverApp:
         self.save_config()
 
     def load_config(self):
+        fp16_loaded = False  # Track if fp16 was loaded from config
+        
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
@@ -1016,6 +1018,7 @@ class MosaicRemoverApp:
                                 self.ffmpeg_option_var.set(opt)
                         elif line.startswith("fp16="):  # Load FP16 setting
                             fp16_val = line.split("=")[1]
+                            fp16_loaded = True  # Mark that fp16 was loaded
                             if fp16_val.lower() == "true":
                                 self.cli_options["fp16"] = True
                                 self.fp16_var.set(True)
@@ -1047,9 +1050,12 @@ class MosaicRemoverApp:
                                 self.cli_options["codec"] = codec_val
                                 self.codec_var.set(codec_val)
                         elif line.startswith("encoder_settings="):  # NEW: Load encoder settings
-                            encoder_settings_val = line.split("=")[1]
-                            self.cli_options["encoder_settings"] = encoder_settings_val
-                            self.encoder_settings_var.set(encoder_settings_val)
+                            # Split only on the first '=' to handle values with '=' in them
+                            parts = line.split("=", 1)
+                            if len(parts) == 2:
+                                encoder_settings_val = parts[1]
+                                self.cli_options["encoder_settings"] = encoder_settings_val
+                                self.encoder_settings_var.set(encoder_settings_val)
             except Exception as e:
                 self.write_log(f"Failed to load config file: {e}")
                 messagebox.showwarning("Warning", f"Failed to load config file: {e}. Continuing with default values.")
@@ -1060,8 +1066,8 @@ class MosaicRemoverApp:
             self.model_var.set(first_label)
             self.cli_options["model_choice"] = first_label
         
-        # Set default FP16 if not loaded
-        if not self.fp16_var.get():
+        # FIXED: Only set default FP16 if it wasn't loaded from config
+        if not fp16_loaded:
             self.fp16_var.set(True)
             self.cli_options["fp16"] = True
 
@@ -1073,12 +1079,14 @@ class MosaicRemoverApp:
                 f.write(f"crf={self.crf_var.get()}\n")
                 f.write(f"output_dir={self.output_dir}\n")
                 f.write(f"ffmpeg_option={self.ffmpeg_option_var.get()}\n")
-                f.write(f"fp16={self.fp16_var.get()}\n")  # Save FP16 setting
+                f.write(f"fp16={str(self.fp16_var.get()).lower()}\n")  # FIXED: Convert boolean to string
                 f.write(f"max_clip_size={self.max_clip_size_var.get()}\n")  # Save max clip size
                 f.write(f"temporal_overlap={self.temporal_overlap_var.get()}\n")  # Save temporal overlap
                 f.write(f"detection_score_threshold={self.detection_score_threshold_var.get()}\n")  # NEW: Save detection score threshold
                 f.write(f"codec={self.codec_var.get()}\n")  # NEW: Save codec
-                f.write(f"encoder_settings={self.encoder_settings_var.get()}\n")  # NEW: Save encoder settings
+                # FIXED: Properly save encoder settings (could contain '=' characters)
+                encoder_settings = self.encoder_settings_var.get()
+                f.write(f"encoder_settings={encoder_settings}\n")  # NEW: Save encoder settings
         except Exception as e:
             self.write_log(f"Failed to save config file: {e}")
             messagebox.showwarning("Warning", f"Failed to save config file: {e}.")
@@ -1857,23 +1865,210 @@ class MosaicRemoverApp:
         self.on_progress_update()
 
     def jump_to_percentage(self, percentage):
+        if not self.cap or not self.cap.isOpened():
+            return
         new_frame = int((percentage / 100) * self.video_total_frames)
         new_frame = min(max(0, new_frame), self.video_total_frames - 1)
         self.current_frame = new_frame
         self.clear_frame_queue()
         with self.cap_lock:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
-            ret, frame = self.cap.read()
-            if ret:
-                self.display_frame(frame)
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
                 if self.fullscreen_window:
-                    self.display_frame_fullscreen(frame)
-            self.on_progress_update()
-            self.update_time_labels()
-            if self.fullscreen_window:
-                self.update_fullscreen_progress()
+                    self.update_fullscreen_progress()
+            except Exception as e:
+                self.write_log(f"Jump to percentage error: {e}")
+
+    def move_frame(self, event):
+        if not self.cap or not self.cap.isOpened():
+            return
+        
+        steps = 300 if event.state & 0x0001 == 0 else 30
+            
+        current_pos = self.current_frame
+        new_pos = current_pos
+        if event.keysym == 'Right':
+            new_pos = min(self.video_total_frames - 1, current_pos + steps)
+        elif event.keysym == 'Left':
+            new_pos = max(0, current_pos - steps)
+            
+        self.current_frame = new_pos
+        self.clear_frame_queue()
+        with self.cap_lock:
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_pos)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Move frame error: {e}")
+
+    def move_one_frame_backward(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        new_frame = max(0, self.current_frame - 1)
+        self.current_frame = new_frame
+        self.clear_frame_queue()
+        with self.cap_lock:
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Move one frame backward error: {e}")
+
+    def move_one_frame_forward(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        new_frame = min(self.video_total_frames - 1, self.current_frame + 1)
+        self.current_frame = new_frame
+        self.clear_frame_queue()
+        with self.cap_lock:
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Move one frame forward error: {e}")
+
+    def move_one_second_backward(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        step_frames = int(self.video_fps)
+        new_frame = max(0, self.current_frame - step_frames)
+        self.current_frame = new_frame
+        self.clear_frame_queue()
+        with self.cap_lock:
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Move one second backward error: {e}")
+
+    def move_one_second_forward(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        step_frames = int(self.video_fps)
+        new_frame = min(self.video_total_frames - 1, self.current_frame + step_frames)
+        self.current_frame = new_frame
+        self.clear_frame_queue()
+        with self.cap_lock:
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Move one second forward error: {e}")
+
+    def jump_to_start(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        self.current_frame = self.start_frame
+        self.clear_frame_queue()
+        with self.cap_lock:
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.start_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Jump to start error: {e}")
+
+    def jump_to_end(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        self.current_frame = self.end_frame
+        self.clear_frame_queue()
+        with self.cap_lock:
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.end_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Jump to end error: {e}")
+
+    def set_start_point_by_key(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        self.start_frame = self.current_frame
+        if self.end_frame < self.start_frame:
+            self.end_frame = self.start_frame
+        self.update_time_labels()
+        self.on_progress_update()
+
+    def set_end_point_by_key(self, event=None):
+        if not self.cap or not self.cap.isOpened():
+            return
+        self.end_frame = self.current_frame
+        if self.start_frame > self.end_frame:
+            self.start_frame = self.end_frame
+        self.update_time_labels()
+        self.on_progress_update()
+
+    def on_progress_click(self, event):
+        if self.video_total_frames > 0 and self.cap and self.cap.isOpened():
+            width = self.progress_canvas.winfo_width()
+            click_pos = event.x / width
+            new_frame = int(click_pos * self.video_total_frames)
+            self.current_frame = new_frame
+            self.clear_frame_queue()
+            with self.cap_lock:
+                try:
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                    ret, frame = self.cap.read()
+                    if ret:
+                        self.display_frame(frame)
+                        if self.fullscreen_window:
+                            self.display_frame_fullscreen(frame)
+                    self.on_progress_update()
+                    self.update_time_labels()
+                except Exception as e:
+                    self.write_log(f"Progress click error: {e}")
 
     def on_mouse_wheel(self, event):
+        if not self.cap or not self.cap.isOpened():
+            return
         delta = -1 if event.delta < 0 else 1
         step_frames = int(5 * self.video_fps)
         if delta > 0:
@@ -1884,14 +2079,17 @@ class MosaicRemoverApp:
         self.current_frame = new_frame
         self.clear_frame_queue()
         with self.cap_lock:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
-            ret, frame = self.cap.read()
-            if ret:
-                self.display_frame(frame)
-                if self.fullscreen_window:
-                    self.display_frame_fullscreen(frame)
-            self.on_progress_update()
-            self.update_time_labels()
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    if self.fullscreen_window:
+                        self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+            except Exception as e:
+                self.write_log(f"Mouse wheel error: {e}")
 
     def toggle_fullscreen(self, event=None):
         if self.fullscreen_window:
@@ -1926,34 +2124,6 @@ class MosaicRemoverApp:
                     self.update_fullscreen_progress()
                     self.start_frame_buffer()
 
-    def display_frame_fullscreen(self, frame):
-        if self.fullscreen_window and frame is not None:
-            screen_width = self.fullscreen_window.winfo_screenwidth()
-            screen_height = self.fullscreen_window.winfo_screenheight()
-            
-            frame_height, frame_width = frame.shape[:2]
-            aspect_ratio = frame_width / frame_height
-            
-            if screen_width / screen_height > aspect_ratio:
-                new_height = screen_height
-                new_width = int(new_height * aspect_ratio)
-            else:
-                new_width = screen_width
-                new_height = int(new_width / aspect_ratio)
-            
-            resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_NEAREST)
-            
-            black_bg = np.zeros((screen_height, screen_width, 3), dtype=np.uint8)
-            offset_x = (screen_width - new_width) // 2
-            offset_y = (screen_height - new_height) // 2
-            black_bg[offset_y:offset_y+new_height, offset_x:offset_x+new_width] = resized_frame
-            
-            rgb_bg = cv2.cvtColor(black_bg, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(rgb_bg)
-            imgtk = ImageTk.PhotoImage(image=img)
-            self.fullscreen_label.configure(image=imgtk)
-            self.fullscreen_label.image = imgtk
-
     def on_fullscreen_progress_click(self, event):
         if not self.video_total_frames > 0 or not self.cap or not self.cap.isOpened():
             return
@@ -1967,14 +2137,17 @@ class MosaicRemoverApp:
         self.current_frame = new_frame
         self.clear_frame_queue()
         with self.cap_lock:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
-            ret, frame = self.cap.read()
-            if ret:
-                self.display_frame(frame)
-                self.display_frame_fullscreen(frame)
-        self.on_progress_update()
-        self.update_time_labels()
-        self.update_fullscreen_progress()
+            try:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
+                ret, frame = self.cap.read()
+                if ret:
+                    self.display_frame(frame)
+                    self.display_frame_fullscreen(frame)
+                self.on_progress_update()
+                self.update_time_labels()
+                self.update_fullscreen_progress()
+            except Exception as e:
+                self.write_log(f"Fullscreen progress click error: {e}")
 
     def update_fullscreen_progress(self):
         if self.fullscreen_progress_canvas and self.video_total_frames > 0:
