@@ -20,7 +20,7 @@ import glob
 class MosaicRemoverApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("JASNA GUI 20260102-1 for jasna 0.2")
+        self.root.title("JASNA GUI 20260126 for jasna 0.3")
         self.root.geometry("1120x1000")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
@@ -72,8 +72,11 @@ class MosaicRemoverApp:
             "fp16": True,  # Changed to boolean
             "crf_value": "19",
             "ffmpeg_option": "no_trim",
-            "max_clip_size": "30",  # NEW: Default max clip size
-            "temporal_overlap": "3"  # NEW: Default temporal overlap
+            "max_clip_size": "60",  # NEW: Default max clip size
+            "temporal_overlap": "5",  # NEW: Default temporal overlap
+            "detection_score_threshold": "0.2",  # NEW: Default detection score threshold
+            "codec": "hevc",  # NEW: Default codec (currently only hevc supported)
+            "encoder_settings": ""  # NEW: Default encoder settings
         }
         self.processing_queue = self.load_queue()
         self.is_batch_processing = False
@@ -90,6 +93,9 @@ class MosaicRemoverApp:
         self.fp16_var = tk.BooleanVar(value=True)
         self.max_clip_size_var = tk.StringVar(value=self.cli_options["max_clip_size"])
         self.temporal_overlap_var = tk.StringVar(value=self.cli_options["temporal_overlap"])
+        self.detection_score_threshold_var = tk.StringVar(value=self.cli_options["detection_score_threshold"])  # NEW
+        self.codec_var = tk.StringVar(value=self.cli_options["codec"])  # NEW
+        self.encoder_settings_var = tk.StringVar(value=self.cli_options["encoder_settings"])  # NEW
         self.crf_var = tk.StringVar(value=self.cli_options["crf_value"])
         self.ffmpeg_option_var = tk.StringVar(value=self.cli_options["ffmpeg_option"])
         self.output_folder_var = tk.StringVar(value=self.output_dir)
@@ -313,44 +319,72 @@ class MosaicRemoverApp:
         options_frame.grid(row=1, column=0, sticky="ew", pady=5)
         
         # 创建第一行：所有选项水平排列
-        row_frame = tk.Frame(options_frame)
-        row_frame.pack(fill=tk.X, expand=True)
+        row1_frame = tk.Frame(options_frame)
+        row1_frame.pack(fill=tk.X, expand=True, pady=(0, 5))
         
         # Detection Model
-        tk.Label(row_frame, text="Detection Model:").pack(side=tk.LEFT, padx=(0, 5))
+        tk.Label(row1_frame, text="Detection Model:").pack(side=tk.LEFT, padx=(0, 5))
         
         # 创建模型选择菜单
         model_labels = [label for label, _ in self.available_detection_models]
         if not model_labels:
             model_labels = ["No model found"]
-            self.model_menu = tk.OptionMenu(row_frame, self.model_var, *model_labels)
+            self.model_menu = tk.OptionMenu(row1_frame, self.model_var, *model_labels)
             self.model_menu.config(state="disabled")
         else:
-            self.model_menu = tk.OptionMenu(row_frame, self.model_var, *model_labels)
+            self.model_menu = tk.OptionMenu(row1_frame, self.model_var, *model_labels)
         self.model_menu.pack(side=tk.LEFT, padx=(0, 15))
         
         # FP16 checkbox
-        self.fp16_check = Checkbutton(row_frame, text="FP16", variable=self.fp16_var)
+        self.fp16_check = Checkbutton(row1_frame, text="FP16", variable=self.fp16_var)
         self.fp16_check.pack(side=tk.LEFT, padx=(0, 15))
         
         # Max Clip Size
-        tk.Label(row_frame, text="Max Clip Size:").pack(side=tk.LEFT, padx=(0, 5))
-        self.max_clip_size_spinbox = tk.Spinbox(row_frame, from_=5, to=300, width=6, 
+        tk.Label(row1_frame, text="Max Clip Size:").pack(side=tk.LEFT, padx=(0, 5))
+        self.max_clip_size_spinbox = tk.Spinbox(row1_frame, from_=1, to=300, width=6, 
                                                 textvariable=self.max_clip_size_var)
         self.max_clip_size_spinbox.pack(side=tk.LEFT, padx=(0, 15))
         
         # Temporal Overlap
-        tk.Label(row_frame, text="Temporal Overlap:").pack(side=tk.LEFT, padx=(0, 5))
-        self.temporal_overlap_spinbox = tk.Spinbox(row_frame, from_=0, to=20, width=6, 
+        tk.Label(row1_frame, text="Temporal Overlap:").pack(side=tk.LEFT, padx=(0, 5))
+        self.temporal_overlap_spinbox = tk.Spinbox(row1_frame, from_=0, to=20, width=6, 
                                                    textvariable=self.temporal_overlap_var)
         self.temporal_overlap_spinbox.pack(side=tk.LEFT, padx=(0, 15))
         
         # Output Folder
-        tk.Label(row_frame, text="Output Folder:").pack(side=tk.LEFT, padx=(0, 5))
-        self.output_folder_entry = tk.Entry(row_frame, textvariable=self.output_folder_var, width=30)
+        tk.Label(row1_frame, text="Output Folder:").pack(side=tk.LEFT, padx=(0, 5))
+        self.output_folder_entry = tk.Entry(row1_frame, textvariable=self.output_folder_var, width=30)
         self.output_folder_entry.pack(side=tk.LEFT, padx=(0, 5))
-        self.output_folder_button = tk.Button(row_frame, text="Change...", command=self.change_output_folder)
+        self.output_folder_button = tk.Button(row1_frame, text="Change...", command=self.change_output_folder)
         self.output_folder_button.pack(side=tk.LEFT)
+
+        # NEW: Second row for new options
+        row2_frame = tk.Frame(options_frame)
+        row2_frame.pack(fill=tk.X, expand=True, pady=(5, 0))
+        
+        # Detection Score Threshold
+        tk.Label(row2_frame, text="Detection Score Threshold:").pack(side=tk.LEFT, padx=(0, 5))
+        self.detection_score_threshold_spinbox = tk.Spinbox(
+            row2_frame, 
+            from_=0.0, 
+            to=1.0, 
+            increment=0.1,
+            width=6, 
+            textvariable=self.detection_score_threshold_var,
+            format="%.1f"
+        )
+        self.detection_score_threshold_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Codec selection (currently only hevc supported)
+        tk.Label(row2_frame, text="Codec:").pack(side=tk.LEFT, padx=(0, 5))
+        self.codec_menu = tk.OptionMenu(row2_frame, self.codec_var, "hevc")
+        self.codec_menu.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Encoder Settings
+        tk.Label(row2_frame, text="Encoder Settings:").pack(side=tk.LEFT, padx=(0, 5))
+        self.encoder_settings_entry = tk.Entry(row2_frame, textvariable=self.encoder_settings_var, width=30)
+        self.encoder_settings_entry.pack(side=tk.LEFT, padx=(0, 5))
+        tk.Label(row2_frame, text="(e.g., cq=22,lookahead=32)").pack(side=tk.LEFT)
 
         preview_frame = tk.LabelFrame(main_frame, text="3. Processing Range Specification", padx=10, pady=10)
         preview_frame.grid(row=2, column=0, sticky="nsew", pady=5)
@@ -420,7 +454,7 @@ class MosaicRemoverApp:
         vr_frame.grid(row=4, column=0, sticky="ew", pady=5)
         
         self.vr_processing_check = Checkbutton(vr_frame, text="VR Processing(180-degree SBS format)", 
-                                               variable=self.vr_processing_var, command=self.on_vr_mode_toggle)
+                                               variable=self.vr_processing_var, command=self.on_vr_mode_toggle, state=tk.DISABLED)
         self.vr_processing_check.pack(side=tk.LEFT, padx=5)
         
         self.vr_simple_mode_check = Checkbutton(vr_frame, text="Simple Processing Mode (Center 70% only)", 
@@ -486,6 +520,9 @@ class MosaicRemoverApp:
         self.fp16_var.trace_add("write", self.save_config_callback)
         self.max_clip_size_var.trace_add("write", self.save_config_callback)
         self.temporal_overlap_var.trace_add("write", self.save_config_callback)
+        self.detection_score_threshold_var.trace_add("write", self.save_config_callback)  # NEW
+        self.codec_var.trace_add("write", self.save_config_callback)  # NEW
+        self.encoder_settings_var.trace_add("write", self.save_config_callback)  # NEW
         self.crf_var.trace_add("write", self.save_config_callback)
         self.ffmpeg_option_var.trace_add("write", self.save_config_callback)
         self.output_folder_var.trace_add("write", self.save_config_callback)
@@ -610,8 +647,15 @@ class MosaicRemoverApp:
             "--detection-model-path", detect_model_path,
             "--device", "cuda:0",
             "--max-clip-size", self.max_clip_size_var.get(),  # Use user setting
-            "--temporal-overlap", self.temporal_overlap_var.get()  # Use user setting
+            "--temporal-overlap", self.temporal_overlap_var.get(),  # Use user setting
+            "--detection-score-threshold", self.detection_score_threshold_var.get(),  # NEW: Add detection score threshold
+            "--codec", self.codec_var.get()  # NEW: Add codec
         ]
+        
+        # Add encoder settings if provided
+        encoder_settings = self.encoder_settings_var.get().strip()
+        if encoder_settings:
+            jasna_command.extend(["--encoder-settings", encoder_settings])
         
         # Add FP16 option based on user setting
         if self.fp16_var.get():  # Now using BooleanVar
@@ -773,6 +817,9 @@ class MosaicRemoverApp:
             'fp16': self.fp16_var.get(),  # Now Boolean value
             'max_clip_size': int(self.max_clip_size_var.get()),  # NEW: Add max clip size
             'temporal_overlap': int(self.temporal_overlap_var.get()),  # NEW: Add temporal overlap
+            'detection_score_threshold': float(self.detection_score_threshold_var.get()),  # NEW: Add detection score threshold
+            'codec': self.codec_var.get(),  # NEW: Add codec
+            'encoder_settings': self.encoder_settings_var.get(),  # NEW: Add encoder settings
             'start_frame': self.start_frame,
             'end_frame': min(self.end_frame, total_frames),
             'ffmpeg_option': self.ffmpeg_option_var.get(),
@@ -877,6 +924,9 @@ class MosaicRemoverApp:
                 fp16 = 'FP16' if entry.get('fp16', True) else 'No FP16'
                 max_clip_size = entry.get('max_clip_size', 30)  # NEW: Get max clip size
                 temporal_overlap = entry.get('temporal_overlap', 3)  # NEW: Get temporal overlap
+                detection_score_threshold = entry.get('detection_score_threshold', 0.2)  # NEW: Get detection score threshold
+                codec = entry.get('codec', 'hevc')  # NEW: Get codec
+                encoder_settings = entry.get('encoder_settings', '')  # NEW: Get encoder settings
                 vr_mode = 'VR' if entry.get('vr_processing', False) else '2D'
                 simple_mode = 'Simple' if entry.get('vr_simple_mode', False) else 'Normal'
                 
@@ -885,9 +935,12 @@ class MosaicRemoverApp:
                 else:
                     range_display = f"Range:{start_time}-{end_time}"
                 
+                # Build display text with all parameters
                 display_text = (f"{i+1}. {filename}, Model:{model_label}, "
                                f"{range_display}, FFmpeg:{ffmpeg_display}, CRF:{crf_value}, "
                                f"FP16:{fp16}, Clip:{max_clip_size}, Overlap:{temporal_overlap}, "
+                               f"DetectThresh:{detection_score_threshold}, Codec:{codec}, "
+                               f"Encoder:{encoder_settings[:20] if encoder_settings else 'default'}, "
                                f"SaveTrim:{save_trimmed}, Mode:{vr_mode}, VRMode:{simple_mode}")
                 self.queue_listbox.insert(tk.END, display_text)
             except Exception as e:
@@ -969,16 +1022,34 @@ class MosaicRemoverApp:
                             elif fp16_val.lower() == "false":
                                 self.cli_options["fp16"] = False
                                 self.fp16_var.set(False)
-                        elif line.startswith("max_clip_size="):  # NEW: Load max clip size
+                        elif line.startswith("max_clip_size="):  # Load max clip size
                             max_clip_size = line.split("=")[1]
-                            if max_clip_size.isdigit() and 5 <= int(max_clip_size) <= 300:
+                            if max_clip_size.isdigit() and 1 <= int(max_clip_size) <= 300:
                                 self.cli_options["max_clip_size"] = max_clip_size
                                 self.max_clip_size_var.set(max_clip_size)
-                        elif line.startswith("temporal_overlap="):  # NEW: Load temporal overlap
+                        elif line.startswith("temporal_overlap="):  # Load temporal overlap
                             temporal_overlap = line.split("=")[1]
                             if temporal_overlap.isdigit() and 0 <= int(temporal_overlap) <= 20:
                                 self.cli_options["temporal_overlap"] = temporal_overlap
                                 self.temporal_overlap_var.set(temporal_overlap)
+                        elif line.startswith("detection_score_threshold="):  # NEW: Load detection score threshold
+                            threshold = line.split("=")[1]
+                            try:
+                                threshold_val = float(threshold)
+                                if 0.0 <= threshold_val <= 1.0:
+                                    self.cli_options["detection_score_threshold"] = threshold
+                                    self.detection_score_threshold_var.set(threshold)
+                            except ValueError:
+                                pass
+                        elif line.startswith("codec="):  # NEW: Load codec
+                            codec_val = line.split("=")[1]
+                            if codec_val.lower() == "hevc":
+                                self.cli_options["codec"] = codec_val
+                                self.codec_var.set(codec_val)
+                        elif line.startswith("encoder_settings="):  # NEW: Load encoder settings
+                            encoder_settings_val = line.split("=")[1]
+                            self.cli_options["encoder_settings"] = encoder_settings_val
+                            self.encoder_settings_var.set(encoder_settings_val)
             except Exception as e:
                 self.write_log(f"Failed to load config file: {e}")
                 messagebox.showwarning("Warning", f"Failed to load config file: {e}. Continuing with default values.")
@@ -1003,8 +1074,11 @@ class MosaicRemoverApp:
                 f.write(f"output_dir={self.output_dir}\n")
                 f.write(f"ffmpeg_option={self.ffmpeg_option_var.get()}\n")
                 f.write(f"fp16={self.fp16_var.get()}\n")  # Save FP16 setting
-                f.write(f"max_clip_size={self.max_clip_size_var.get()}\n")  # NEW: Save max clip size
-                f.write(f"temporal_overlap={self.temporal_overlap_var.get()}\n")  # NEW: Save temporal overlap
+                f.write(f"max_clip_size={self.max_clip_size_var.get()}\n")  # Save max clip size
+                f.write(f"temporal_overlap={self.temporal_overlap_var.get()}\n")  # Save temporal overlap
+                f.write(f"detection_score_threshold={self.detection_score_threshold_var.get()}\n")  # NEW: Save detection score threshold
+                f.write(f"codec={self.codec_var.get()}\n")  # NEW: Save codec
+                f.write(f"encoder_settings={self.encoder_settings_var.get()}\n")  # NEW: Save encoder settings
         except Exception as e:
             self.write_log(f"Failed to save config file: {e}")
             messagebox.showwarning("Warning", f"Failed to save config file: {e}.")
@@ -1076,8 +1150,11 @@ class MosaicRemoverApp:
                 'video_path': file_path,
                 'model': self.model_var.get(),
                 'fp16': self.fp16_var.get(),  # Boolean value
-                'max_clip_size': int(self.max_clip_size_var.get()),  # NEW: Add max clip size
-                'temporal_overlap': int(self.temporal_overlap_var.get()),  # NEW: Add temporal overlap
+                'max_clip_size': int(self.max_clip_size_var.get()),  # Add max clip size
+                'temporal_overlap': int(self.temporal_overlap_var.get()),  # Add temporal overlap
+                'detection_score_threshold': float(self.detection_score_threshold_var.get()),  # NEW: Add detection score threshold
+                'codec': self.codec_var.get(),  # NEW: Add codec
+                'encoder_settings': self.encoder_settings_var.get(),  # NEW: Add encoder settings
                 'start_frame': 0,
                 'end_frame': total_frames,
                 'ffmpeg_option': self.ffmpeg_option_var.get(),
@@ -1252,6 +1329,45 @@ class MosaicRemoverApp:
             return False
         if not os.path.exists(self.file_path_entry.get()):
             messagebox.showerror("Error", "Specified video file does not exist.")
+            return False
+        
+        # Validate max clip size
+        try:
+            max_clip_size = int(self.max_clip_size_var.get())
+            if max_clip_size <= 0:
+                messagebox.showerror("Error", "--max-clip-size must be > 0")
+                return False
+        except ValueError:
+            messagebox.showerror("Error", "Max Clip Size must be an integer")
+            return False
+        
+        # Validate temporal overlap
+        try:
+            temporal_overlap = int(self.temporal_overlap_var.get())
+            if temporal_overlap < 0:
+                messagebox.showerror("Error", "--temporal-overlap must be >= 0")
+                return False
+            if temporal_overlap >= max_clip_size:
+                messagebox.showerror("Error", "--temporal-overlap must be < --max-clip-size")
+                return False
+        except ValueError:
+            messagebox.showerror("Error", "Temporal Overlap must be an integer")
+            return False
+        
+        # Validate detection score threshold
+        try:
+            detection_score_threshold = float(self.detection_score_threshold_var.get())
+            if not (0.0 <= detection_score_threshold <= 1.0):
+                messagebox.showerror("Error", "--detection-score-threshold must be in [0, 1]")
+                return False
+        except ValueError:
+            messagebox.showerror("Error", "Detection Score Threshold must be a number")
+            return False
+        
+        # Validate codec
+        codec = self.codec_var.get().lower()
+        if codec != "hevc":
+            messagebox.showerror("Error", f"Unsupported codec: {codec} (only hevc supported)")
             return False
         
         option = self.ffmpeg_option_var.get()
