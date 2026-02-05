@@ -3,9 +3,9 @@ pip install tkinterdnd2
 ```
 put jasna.py near jasna.exe
 
-run ```python jasna.py``` or !GUI.bat (tested at Windows only)
+run ```python jasna.py``` or !GUI.bat (for Windows release only)
 
-<img width="1216" height="998" alt="image" src="https://github.com/user-attachments/assets/4d268629-9fca-47f8-9b23-43e2ec9ea4f8" />
+![jasna_GUI](https://github.com/user-attachments/assets/896f87f0-d529-41d6-8cf4-bc5cc18fb0d2)
 
 drag and drop is supported, VR mode not supported!
 
