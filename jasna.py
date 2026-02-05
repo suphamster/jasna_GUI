@@ -20,7 +20,7 @@ import glob
 class MosaicRemoverApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("JASNA GUI 20260205 for jasna 0.4")
+        self.root.title("JASNA GUI 20260205 for jasna 0.4-rc2")
         self.root.geometry("1220x1000")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
@@ -82,7 +82,9 @@ class MosaicRemoverApp:
             "secondary_restoration": "none",  # NEW: none/swin2sr/tvai
             "swin2sr_batch_size": "8",  # NEW: Swin2SR batch size
             "tvai_ffmpeg_path": r"C:\Program Files\Topaz Labs LLC\Topaz Video AI\ffmpeg.exe",  # NEW: TVAI ffmpeg path
-            "tvai_args": "model=iris-3:scale=0:preblur=0:noise=0:details=0:halo=0:blur=0:compression=0:estimate=8:blend=0.2:device=-2:vram=1:instances=1",  # NEW: TVAI arguments
+            "tvai_model": "iris-2",  # NEW: TVAI model name (iris-2, prob-4, iris-3, etc.)
+            "tvai_scale": "4",  # NEW: TVAI scale (1, 2, 4)
+            "tvai_args": "preblur=0:noise=0:details=0:halo=0:blur=0:compression=0:estimate=8:blend=0.2:device=-2:vram=1:instances=1",  # NEW: TVAI arguments
             "compile_tensorrt": True,  # NEW: TensorRT compilation
             "compile_basicvsrpp": True  # NEW: BasicVSR++ compilation
         }
@@ -118,6 +120,8 @@ class MosaicRemoverApp:
         self.secondary_restoration_var = tk.StringVar(value=self.cli_options["secondary_restoration"])
         self.swin2sr_batch_size_var = tk.StringVar(value=self.cli_options["swin2sr_batch_size"])
         self.tvai_ffmpeg_path_var = tk.StringVar(value=self.cli_options["tvai_ffmpeg_path"])
+        self.tvai_model_var = tk.StringVar(value=self.cli_options["tvai_model"])
+        self.tvai_scale_var = tk.StringVar(value=self.cli_options["tvai_scale"])
         self.tvai_args_var = tk.StringVar(value=self.cli_options["tvai_args"])
         self.compile_tensorrt_var = tk.BooleanVar(value=self.cli_options["compile_tensorrt"])
         self.compile_basicvsrpp_var = tk.BooleanVar(value=self.cli_options["compile_basicvsrpp"])
@@ -518,7 +522,7 @@ class MosaicRemoverApp:
         self.tvai_ffmpeg_path_entry = tk.Entry(
             self.tvai_frame, 
             textvariable=self.tvai_ffmpeg_path_var,
-            width=40
+            width=30
         )
         self.tvai_ffmpeg_path_entry.pack(side=tk.LEFT, padx=(0, 5))
         self.tvai_ffmpeg_browse_button = tk.Button(
@@ -526,16 +530,26 @@ class MosaicRemoverApp:
             text="Browse...",
             command=self.browse_tvai_ffmpeg
         )
-        self.tvai_ffmpeg_browse_button.pack(side=tk.LEFT, padx=(0, 10))
+        self.tvai_ffmpeg_browse_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        # TVAI arguments
-        tk.Label(self.tvai_frame, text="Args:").pack(side=tk.LEFT, padx=(0, 5))
-        self.tvai_args_entry = tk.Entry(
-            self.tvai_frame, 
-            textvariable=self.tvai_args_var,
-            width=60
+        # TVAI Model
+        tk.Label(self.tvai_frame, text="Model:").pack(side=tk.LEFT, padx=(5, 5))
+        self.tvai_model_menu = tk.OptionMenu(
+            self.tvai_frame,
+            self.tvai_model_var,
+            "iris-2", "iris-3", "prob-4", "apollo-2", "apollo-3", "apollo-4", "artemis-2", "artemis-3"
         )
-        self.tvai_args_entry.pack(side=tk.LEFT)
+        self.tvai_model_menu.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # TVAI Scale
+        tk.Label(self.tvai_frame, text="Scale:").pack(side=tk.LEFT, padx=(5, 5))
+        self.tvai_scale_menu = tk.OptionMenu(
+            self.tvai_frame,
+            self.tvai_scale_var,
+            "1", "2", "4"
+        )
+        self.tvai_scale_menu.pack(side=tk.LEFT, padx=(0, 5))
+        
         self.tvai_frame.pack_forget()  # Hide initially
 
         # VR frame
@@ -647,7 +661,8 @@ class MosaicRemoverApp:
         self.secondary_restoration_var.trace_add("write", self.save_config_callback)
         self.swin2sr_batch_size_var.trace_add("write", self.save_config_callback)
         self.tvai_ffmpeg_path_var.trace_add("write", self.save_config_callback)
-        self.tvai_args_var.trace_add("write", self.save_config_callback)
+        self.tvai_model_var.trace_add("write", self.save_config_callback)
+        self.tvai_scale_var.trace_add("write", self.save_config_callback)
         self.compile_tensorrt_var.trace_add("write", self.save_config_callback)
         self.compile_basicvsrpp_var.trace_add("write", self.save_config_callback)
     
@@ -802,10 +817,15 @@ class MosaicRemoverApp:
             if secondary_restoration == "swin2sr":
                 jasna_command.extend(["--swin2sr-batch-size", self.swin2sr_batch_size_var.get()])
             
-            # Add TVAI specific options
+            # Add TVAI specific options - FIXED: Use new CLI parameters
             elif secondary_restoration == "tvai":
                 jasna_command.extend(["--tvai-ffmpeg-path", self.tvai_ffmpeg_path_var.get()])
-                jasna_command.extend(["--tvai-args", self.tvai_args_var.get()])
+                jasna_command.extend(["--tvai-model", self.tvai_model_var.get()])
+                jasna_command.extend(["--tvai-scale", self.tvai_scale_var.get()])
+                # Only pass extra args if not empty
+                tvai_args = self.tvai_args_var.get().strip()
+                if tvai_args:
+                    jasna_command.extend(["--tvai-args", tvai_args])
         
         # Check if restoration model exists
         restore_pattern = os.path.join(self.model_weights_dir, "*.pth")
@@ -966,6 +986,8 @@ class MosaicRemoverApp:
             'secondary_restoration': self.secondary_restoration_var.get(),
             'swin2sr_batch_size': int(self.swin2sr_batch_size_var.get()) if self.secondary_restoration_var.get() == "swin2sr" else 8,
             'tvai_ffmpeg_path': self.tvai_ffmpeg_path_var.get(),
+            'tvai_model': self.tvai_model_var.get(),
+            'tvai_scale': int(self.tvai_scale_var.get()),
             'tvai_args': self.tvai_args_var.get(),
             'start_frame': self.start_frame,
             'end_frame': min(self.end_frame, total_frames),
@@ -1078,6 +1100,8 @@ class MosaicRemoverApp:
                 compile_basicvsrpp = 'BasicVSR++' if entry.get('compile_basicvsrpp', True) else 'No BasicVSR++'
                 secondary_restoration = entry.get('secondary_restoration', 'none')
                 swin2sr_batch_size = entry.get('swin2sr_batch_size', 8)
+                tvai_model = entry.get('tvai_model', 'iris-2')
+                tvai_scale = entry.get('tvai_scale', 4)
                 vr_mode = 'VR' if entry.get('vr_processing', False) else '2D'
                 simple_mode = 'Simple' if entry.get('vr_simple_mode', False) else 'Normal'
                 
@@ -1094,6 +1118,7 @@ class MosaicRemoverApp:
                                f"Encoder:{encoder_settings[:20] if encoder_settings else 'default'}, "
                                f"TensorRT:{compile_tensorrt}, BasicVSR++:{compile_basicvsrpp}, "
                                f"2ndRestore:{secondary_restoration}, "
+                               f"TVAI:{tvai_model}:{tvai_scale}, "
                                f"SaveTrim:{save_trimmed}, Mode:{vr_mode}, VRMode:{simple_mode}")
                 self.queue_listbox.insert(tk.END, display_text)
             except Exception as e:
@@ -1230,6 +1255,18 @@ class MosaicRemoverApp:
                                 tvai_path = parts[1]
                                 self.cli_options["tvai_ffmpeg_path"] = tvai_path
                                 self.tvai_ffmpeg_path_var.set(tvai_path)
+                        elif line.startswith("tvai_model="):
+                            # Split only on first '=' to handle model names with '='
+                            parts = line.split("=", 1)
+                            if len(parts) == 2:
+                                tvai_model = parts[1]
+                                self.cli_options["tvai_model"] = tvai_model
+                                self.tvai_model_var.set(tvai_model)
+                        elif line.startswith("tvai_scale="):
+                            scale = line.split("=")[1]
+                            if scale in ["1", "2", "4"]:
+                                self.cli_options["tvai_scale"] = scale
+                                self.tvai_scale_var.set(scale)
                         elif line.startswith("tvai_args="):
                             # Split only on first '=' to handle args with '='
                             parts = line.split("=", 1)
@@ -1304,6 +1341,8 @@ class MosaicRemoverApp:
                 f.write(f"secondary_restoration={self.secondary_restoration_var.get()}\n")
                 f.write(f"swin2sr_batch_size={self.swin2sr_batch_size_var.get()}\n")
                 f.write(f"tvai_ffmpeg_path={self.tvai_ffmpeg_path_var.get()}\n")
+                f.write(f"tvai_model={self.tvai_model_var.get()}\n")
+                f.write(f"tvai_scale={self.tvai_scale_var.get()}\n")
                 f.write(f"tvai_args={self.tvai_args_var.get()}\n")
         except Exception as e:
             self.write_log(f"Failed to save config file: {e}")
@@ -1387,6 +1426,8 @@ class MosaicRemoverApp:
                 'secondary_restoration': self.secondary_restoration_var.get(),
                 'swin2sr_batch_size': int(self.swin2sr_batch_size_var.get()) if self.secondary_restoration_var.get() == "swin2sr" else 8,
                 'tvai_ffmpeg_path': self.tvai_ffmpeg_path_var.get(),
+                'tvai_model': self.tvai_model_var.get(),
+                'tvai_scale': int(self.tvai_scale_var.get()),
                 'tvai_args': self.tvai_args_var.get(),
                 'start_frame': 0,
                 'end_frame': total_frames,
@@ -1612,16 +1653,32 @@ class MosaicRemoverApp:
                     messagebox.showerror("Error", "--swin2sr-batch-size must be > 0")
                     return False
             
-            # Validate TVAI ffmpeg path if selected
+            # Validate TVAI settings if selected
             if self.secondary_restoration_var.get() == "tvai":
+                # Validate TVAI ffmpeg path
                 tvai_path = self.tvai_ffmpeg_path_var.get().strip()
-                if not tvai_path or not os.path.exists(tvai_path):
+                if not tvai_path:
+                    messagebox.showerror("Error", "TVAI ffmpeg path is required")
+                    return False
+                if not os.path.exists(tvai_path):
                     if not messagebox.askyesno("Warning", 
                         f"TVAI ffmpeg path not found:\n{tvai_path}\n\n"
                         "Do you want to continue anyway? (Processing will fail if TVAI is not available)"):
                         return False
+                
+                # Validate TVAI model
+                tvai_model = self.tvai_model_var.get().strip()
+                if not tvai_model:
+                    messagebox.showerror("Error", "TVAI model is required")
+                    return False
+                
+                # Validate TVAI scale
+                tvai_scale = int(self.tvai_scale_var.get())
+                if tvai_scale not in [1, 2, 4]:
+                    messagebox.showerror("Error", "TVAI scale must be 1, 2, or 4")
+                    return False
         except ValueError:
-            messagebox.showerror("Error", "Swin2SR batch size must be an integer")
+            messagebox.showerror("Error", "Invalid numeric value in TVAI settings")
             return False
         
         option = self.ffmpeg_option_var.get()
