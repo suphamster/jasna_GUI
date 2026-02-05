@@ -543,7 +543,7 @@ class MosaicRemoverApp:
         vr_frame.grid(row=5, column=0, sticky="ew", pady=5)
         
         self.vr_processing_check = Checkbutton(vr_frame, text="VR Processing(180-degree SBS format)", 
-                                               variable=self.vr_processing_var, command=self.on_vr_mode_toggle)
+                                               variable=self.vr_processing_var, command=self.on_vr_mode_toggle, state=tk.DISABLED)
         self.vr_processing_check.pack(side=tk.LEFT, padx=5)
         
         self.vr_simple_mode_check = Checkbutton(vr_frame, text="Simple Processing Mode (Center 70% only)", 
