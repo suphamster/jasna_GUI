@@ -1,4 +1,4 @@
-compiled to exe version https://pixeldrain.com/u/sgMcxGU3
+compiled to exe version https://pixeldrain.com/u/SHZuhDvu
 ```
 pip install tkinterdnd2
 ```
