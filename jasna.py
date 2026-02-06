@@ -20,7 +20,7 @@ import glob
 class MosaicRemoverApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("JASNA GUI 20260205 for jasna 0.4-rc2")
+        self.root.title("JASNA GUI 20260206 for jasna 0.4-rc3")
         self.root.geometry("1220x1000")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
@@ -67,11 +67,12 @@ class MosaicRemoverApp:
         self.config_file = "config.ini"
         self.queue_file = "processing_queue.json"
         
-        # Updated CLI options with new parameters
+        # Updated CLI options with new rc3 parameters
         self.cli_options = {
             "model_choice": "",
             "encoding_preset": "hevc-nvidia-gpu-balanced",
             "fp16": True,
+            "batch_size": "4",  # NEW: batch-size parameter
             "crf_value": "19",
             "ffmpeg_option": "no_trim",
             "max_clip_size": "60",
@@ -79,14 +80,18 @@ class MosaicRemoverApp:
             "detection_score_threshold": "0.2",
             "codec": "hevc",
             "encoder_settings": "",
-            "secondary_restoration": "none",  # NEW: none/swin2sr/tvai
-            "swin2sr_batch_size": "8",  # NEW: Swin2SR batch size
-            "tvai_ffmpeg_path": r"C:\Program Files\Topaz Labs LLC\Topaz Video AI\ffmpeg.exe",  # NEW: TVAI ffmpeg path
-            "tvai_model": "iris-2",  # NEW: TVAI model name (iris-2, prob-4, iris-3, etc.)
-            "tvai_scale": "4",  # NEW: TVAI scale (1, 2, 4)
-            "tvai_args": "preblur=0:noise=0:details=0:halo=0:blur=0:compression=0:estimate=8:blend=0.2:device=-2:vram=1:instances=1",  # NEW: TVAI arguments
-            "compile_tensorrt": True,  # NEW: TensorRT compilation
-            "compile_basicvsrpp": True  # NEW: BasicVSR++ compilation
+            "secondary_restoration": "none",
+            "swin2sr_batch_size": "8",
+            "swin2sr_compilation": True,  # NEW: Swin2SR compilation option
+            "tvai_ffmpeg_path": r"C:\Program Files\Topaz Labs LLC\Topaz Video AI\ffmpeg.exe",
+            "tvai_model": "iris-2",
+            "tvai_scale": "4",
+            "tvai_args": "preblur=0:noise=0:details=0:halo=0:blur=0:compression=0:estimate=8:blend=0.2:device=-2:vram=1:instances=1",
+            "tvai_workers": "2",  # NEW: TVAI workers for parallel processing
+            "compile_tensorrt": True,
+            "compile_basicvsrpp": True,
+            "denoise": "none",  # NEW: denoise option
+            "enable_crossfade": True  # NEW: crossfade option
         }
         
         self.processing_queue = self.load_queue()
@@ -102,6 +107,7 @@ class MosaicRemoverApp:
         # Initialize tkinter variables
         self.model_var = tk.StringVar()
         self.fp16_var = tk.BooleanVar(value=True)
+        self.batch_size_var = tk.StringVar(value=self.cli_options["batch_size"])  # NEW: batch size variable
         self.max_clip_size_var = tk.StringVar(value=self.cli_options["max_clip_size"])
         self.temporal_overlap_var = tk.StringVar(value=self.cli_options["temporal_overlap"])
         self.detection_score_threshold_var = tk.StringVar(value=self.cli_options["detection_score_threshold"])
@@ -116,15 +122,43 @@ class MosaicRemoverApp:
         self.show_completion_dialog_var = tk.BooleanVar(value=True)
         self.suppress_queue_message_var = tk.BooleanVar(value=True)
         
-        # NEW: Initialize tkinter variables for new options
+        # NEW: Initialize tkinter variables for new rc3 options
         self.secondary_restoration_var = tk.StringVar(value=self.cli_options["secondary_restoration"])
         self.swin2sr_batch_size_var = tk.StringVar(value=self.cli_options["swin2sr_batch_size"])
+        self.swin2sr_compilation_var = tk.BooleanVar(value=self.cli_options["swin2sr_compilation"])  # NEW
         self.tvai_ffmpeg_path_var = tk.StringVar(value=self.cli_options["tvai_ffmpeg_path"])
         self.tvai_model_var = tk.StringVar(value=self.cli_options["tvai_model"])
         self.tvai_scale_var = tk.StringVar(value=self.cli_options["tvai_scale"])
         self.tvai_args_var = tk.StringVar(value=self.cli_options["tvai_args"])
+        self.tvai_workers_var = tk.StringVar(value=self.cli_options["tvai_workers"])  # NEW
         self.compile_tensorrt_var = tk.BooleanVar(value=self.cli_options["compile_tensorrt"])
         self.compile_basicvsrpp_var = tk.BooleanVar(value=self.cli_options["compile_basicvsrpp"])
+        self.denoise_var = tk.StringVar(value=self.cli_options["denoise"])  # NEW
+        self.enable_crossfade_var = tk.BooleanVar(value=self.cli_options["enable_crossfade"])  # NEW
+        
+        # TVAI models list updated according to provided info
+        self.tvai_scaling_models = [
+            "aaa-10", "aaa-9", "ahq-10", "ahq-11", "ahq-12", "alq-10", "alq-12", "alq-13",
+            "alqs-1", "alqs-2", "amq-10", "amq-12", "amq-13", "amqs-1", "amqs-2", "ddv-1",
+            "ddv-2", "ddv-3", "dtd-1", "dtd-3", "dtd-4", "dtds-1", "dtds-2", "dtv-1", "dtv-3",
+            "dtv-4", "dtvs-1", "dtvs-2", "gcg-5", "ghq-5", "prap-2", "prob-2", "thd-3", "thf-4",
+            "iris-2", "iris-3", "prob-4"  # Legacy models from previous version
+        ]
+        
+        self.tvai_interpolation_models = [
+            "apo-8", "apf-1", "chr-2", "chf-1", "chf-2", "chf-3", "chr-1"
+        ]
+        
+        self.tvai_stabilization_models = [
+            "cpe-1", "cpe-2", "ref-2"
+        ]
+        
+        # Combine all TVAI models
+        self.all_tvai_models = sorted(list(set(
+            self.tvai_scaling_models + 
+            self.tvai_interpolation_models + 
+            self.tvai_stabilization_models
+        )))
         
         # Check if jasna.exe exists
         if not os.path.exists(self.jasna_path):
@@ -335,7 +369,7 @@ class MosaicRemoverApp:
         self.browse_button = tk.Button(file_frame, text="Browse...", command=self.browse_file)
         self.browse_button.pack(side=tk.LEFT, padx=5)
 
-        # Option Settings frame - moved compilation checkboxes here
+        # Option Settings frame
         options_frame = tk.LabelFrame(main_frame, text="2. Option Settings", padx=10, pady=10)
         options_frame.grid(row=1, column=0, sticky="ew", pady=5)
         
@@ -360,48 +394,76 @@ class MosaicRemoverApp:
         self.fp16_check = Checkbutton(row1_frame, text="FP16", variable=self.fp16_var)
         self.fp16_check.pack(side=tk.LEFT, padx=(0, 15))
         
-        # Compilation checkboxes (moved from secondary restoration section)
+        # Batch Size (NEW)
+        tk.Label(row1_frame, text="Batch Size:").pack(side=tk.LEFT, padx=(0, 5))
+        self.batch_size_spinbox = tk.Spinbox(row1_frame, from_=1, to=32, width=5, 
+                                              textvariable=self.batch_size_var)
+        self.batch_size_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Denoise option (NEW)
+        tk.Label(row1_frame, text="Denoise:").pack(side=tk.LEFT, padx=(0, 5))
+        self.denoise_menu = tk.OptionMenu(row1_frame, self.denoise_var, "none", "low", "medium", "high")
+        self.denoise_menu.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # Crossfade checkbox (NEW)
+        self.crossfade_check = Checkbutton(row1_frame, text="Enable Crossfade", variable=self.enable_crossfade_var)
+        self.crossfade_check.pack(side=tk.LEFT, padx=(0, 15))
+
+        # Second row: Compilation options and other settings
+        row2_frame = tk.Frame(options_frame)
+        row2_frame.pack(fill=tk.X, expand=True, pady=(5, 0))
+        
+        # Compilation checkboxes
+        tk.Label(row2_frame, text="Compile:").pack(side=tk.LEFT, padx=(0, 5))
         self.compile_tensorrt_check = Checkbutton(
-            row1_frame, 
+            row2_frame, 
             text="TensorRT", 
             variable=self.compile_tensorrt_var
         )
         self.compile_tensorrt_check.pack(side=tk.LEFT, padx=(0, 5))
         
         self.compile_basicvsrpp_check = Checkbutton(
-            row1_frame, 
+            row2_frame, 
             text="BasicVSR++", 
             variable=self.compile_basicvsrpp_var
         )
-        self.compile_basicvsrpp_check.pack(side=tk.LEFT, padx=(0, 15))
+        self.compile_basicvsrpp_check.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # NEW: Swin2SR compilation checkbox
+        self.compile_swin2sr_check = Checkbutton(
+            row2_frame, 
+            text="Swin2SR", 
+            variable=self.swin2sr_compilation_var
+        )
+        self.compile_swin2sr_check.pack(side=tk.LEFT, padx=(0, 15))
         
         # Max Clip Size
-        tk.Label(row1_frame, text="Max Clip Size:").pack(side=tk.LEFT, padx=(0, 5))
-        self.max_clip_size_spinbox = tk.Spinbox(row1_frame, from_=1, to=300, width=6, 
+        tk.Label(row2_frame, text="Max Clip Size:").pack(side=tk.LEFT, padx=(0, 5))
+        self.max_clip_size_spinbox = tk.Spinbox(row2_frame, from_=1, to=300, width=6, 
                                                 textvariable=self.max_clip_size_var)
         self.max_clip_size_spinbox.pack(side=tk.LEFT, padx=(0, 15))
         
         # Temporal Overlap
-        tk.Label(row1_frame, text="Temporal Overlap:").pack(side=tk.LEFT, padx=(0, 5))
-        self.temporal_overlap_spinbox = tk.Spinbox(row1_frame, from_=0, to=20, width=6, 
+        tk.Label(row2_frame, text="Temporal Overlap:").pack(side=tk.LEFT, padx=(0, 5))
+        self.temporal_overlap_spinbox = tk.Spinbox(row2_frame, from_=0, to=20, width=6, 
                                                    textvariable=self.temporal_overlap_var)
         self.temporal_overlap_spinbox.pack(side=tk.LEFT, padx=(0, 15))
 
-        # Second row: More options
-        row2_frame = tk.Frame(options_frame)
-        row2_frame.pack(fill=tk.X, expand=True, pady=(5, 0))
+        # Third row: More options
+        row3_frame = tk.Frame(options_frame)
+        row3_frame.pack(fill=tk.X, expand=True, pady=(5, 0))
         
         # Output Folder
-        tk.Label(row2_frame, text="Output Folder:").pack(side=tk.LEFT, padx=(0, 5))
-        self.output_folder_entry = tk.Entry(row2_frame, textvariable=self.output_folder_var, width=30)
+        tk.Label(row3_frame, text="Output Folder:").pack(side=tk.LEFT, padx=(0, 5))
+        self.output_folder_entry = tk.Entry(row3_frame, textvariable=self.output_folder_var, width=30)
         self.output_folder_entry.pack(side=tk.LEFT, padx=(0, 5))
-        self.output_folder_button = tk.Button(row2_frame, text="Change...", command=self.change_output_folder)
+        self.output_folder_button = tk.Button(row3_frame, text="Change...", command=self.change_output_folder)
         self.output_folder_button.pack(side=tk.LEFT, padx=(0, 15))
         
         # Detection Score Threshold
-        tk.Label(row2_frame, text="Detection Score Threshold:").pack(side=tk.LEFT, padx=(0, 5))
+        tk.Label(row3_frame, text="Detection Score Threshold:").pack(side=tk.LEFT, padx=(0, 5))
         self.detection_score_threshold_spinbox = tk.Spinbox(
-            row2_frame, 
+            row3_frame, 
             from_=0.0, 
             to=1.0, 
             increment=0.1,
@@ -411,16 +473,16 @@ class MosaicRemoverApp:
         )
         self.detection_score_threshold_spinbox.pack(side=tk.LEFT, padx=(0, 15))
         
-        # Codec selection (currently only hevc supported)
-        tk.Label(row2_frame, text="Codec:").pack(side=tk.LEFT, padx=(0, 5))
-        self.codec_menu = tk.OptionMenu(row2_frame, self.codec_var, "hevc")
+        # Codec selection
+        tk.Label(row3_frame, text="Codec:").pack(side=tk.LEFT, padx=(0, 5))
+        self.codec_menu = tk.OptionMenu(row3_frame, self.codec_var, "hevc")
         self.codec_menu.pack(side=tk.LEFT, padx=(0, 15))
         
         # Encoder Settings
-        tk.Label(row2_frame, text="Encoder Settings:").pack(side=tk.LEFT, padx=(0, 5))
-        self.encoder_settings_entry = tk.Entry(row2_frame, textvariable=self.encoder_settings_var, width=30)
+        tk.Label(row3_frame, text="Encoder Settings:").pack(side=tk.LEFT, padx=(0, 5))
+        self.encoder_settings_entry = tk.Entry(row3_frame, textvariable=self.encoder_settings_var, width=30)
         self.encoder_settings_entry.pack(side=tk.LEFT, padx=(0, 5))
-        tk.Label(row2_frame, text="(e.g., cq=22,lookahead=32)").pack(side=tk.LEFT)
+        tk.Label(row3_frame, text="(e.g., cq=22,lookahead=32)").pack(side=tk.LEFT)
 
         preview_frame = tk.LabelFrame(main_frame, text="3. Processing Range Specification", padx=10, pady=10)
         preview_frame.grid(row=2, column=0, sticky="nsew", pady=5)
@@ -485,7 +547,7 @@ class MosaicRemoverApp:
         self.batch_count_label = tk.Label(ffmpeg_frame, text="", fg="blue")
         self.batch_count_label.pack(side=tk.RIGHT, padx=5)
 
-        # NEW: Create a dedicated frame for secondary restoration options
+        # Secondary restoration frame
         secondary_restoration_frame = tk.LabelFrame(main_frame, text="5. Secondary Restoration Settings", padx=10, pady=10)
         secondary_restoration_frame.grid(row=4, column=0, sticky="ew", pady=5)
         
@@ -532,12 +594,12 @@ class MosaicRemoverApp:
         )
         self.tvai_ffmpeg_browse_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        # TVAI Model
+        # TVAI Model - updated with all models
         tk.Label(self.tvai_frame, text="Model:").pack(side=tk.LEFT, padx=(5, 5))
         self.tvai_model_menu = tk.OptionMenu(
             self.tvai_frame,
             self.tvai_model_var,
-            "iris-2", "iris-3", "prob-4", "apollo-2", "apollo-3", "apollo-4", "artemis-2", "artemis-3"
+            *sorted(self.all_tvai_models)
         )
         self.tvai_model_menu.pack(side=tk.LEFT, padx=(0, 5))
         
@@ -549,6 +611,17 @@ class MosaicRemoverApp:
             "1", "2", "4"
         )
         self.tvai_scale_menu.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # TVAI Workers (NEW)
+        tk.Label(self.tvai_frame, text="Workers:").pack(side=tk.LEFT, padx=(5, 5))
+        self.tvai_workers_spinbox = tk.Spinbox(
+            self.tvai_frame,
+            from_=1,
+            to=8,
+            width=4,
+            textvariable=self.tvai_workers_var
+        )
+        self.tvai_workers_spinbox.pack(side=tk.LEFT, padx=(0, 5))
         
         self.tvai_frame.pack_forget()  # Hide initially
 
@@ -648,6 +721,7 @@ class MosaicRemoverApp:
         """Setup trace callbacks for all variables that need to save config"""
         self.model_var.trace_add("write", self.save_config_callback)
         self.fp16_var.trace_add("write", self.save_config_callback)
+        self.batch_size_var.trace_add("write", self.save_config_callback)  # NEW
         self.max_clip_size_var.trace_add("write", self.save_config_callback)
         self.temporal_overlap_var.trace_add("write", self.save_config_callback)
         self.detection_score_threshold_var.trace_add("write", self.save_config_callback)
@@ -656,13 +730,17 @@ class MosaicRemoverApp:
         self.crf_var.trace_add("write", self.save_config_callback)
         self.ffmpeg_option_var.trace_add("write", self.save_config_callback)
         self.output_folder_var.trace_add("write", self.save_config_callback)
+        self.denoise_var.trace_add("write", self.save_config_callback)  # NEW
+        self.enable_crossfade_var.trace_add("write", self.save_config_callback)  # NEW
         
-        # NEW: Add trace callbacks for new variables
+        # Add trace callbacks for secondary restoration variables
         self.secondary_restoration_var.trace_add("write", self.save_config_callback)
         self.swin2sr_batch_size_var.trace_add("write", self.save_config_callback)
+        self.swin2sr_compilation_var.trace_add("write", self.save_config_callback)  # NEW
         self.tvai_ffmpeg_path_var.trace_add("write", self.save_config_callback)
         self.tvai_model_var.trace_add("write", self.save_config_callback)
         self.tvai_scale_var.trace_add("write", self.save_config_callback)
+        self.tvai_workers_var.trace_add("write", self.save_config_callback)  # NEW
         self.compile_tensorrt_var.trace_add("write", self.save_config_callback)
         self.compile_basicvsrpp_var.trace_add("write", self.save_config_callback)
     
@@ -777,7 +855,7 @@ class MosaicRemoverApp:
         if not detect_model_path or not os.path.exists(detect_model_path):
             raise FileNotFoundError(f"Selected detection model not found: {detect_model_path}")
         
-        # Build JASNA command with all parameters
+        # Build JASNA command with all rc3 parameters
         jasna_command = [
             self.jasna_path,
             "--input", input_file,
@@ -785,6 +863,7 @@ class MosaicRemoverApp:
             "--detection-model", "rfdetr",
             "--detection-model-path", detect_model_path,
             "--device", "cuda:0",
+            "--batch-size", self.batch_size_var.get(),  # NEW: batch-size
             "--max-clip-size", self.max_clip_size_var.get(),
             "--temporal-overlap", self.temporal_overlap_var.get(),
             "--detection-score-threshold", self.detection_score_threshold_var.get(),
@@ -802,6 +881,17 @@ class MosaicRemoverApp:
         else:
             jasna_command.append("--no-fp16")
         
+        # Add crossfade option (NEW)
+        if self.enable_crossfade_var.get():
+            jasna_command.append("--enable-crossfade")
+        else:
+            jasna_command.append("--disable-crossfade")
+        
+        # Add denoise option (NEW)
+        denoise_strength = self.denoise_var.get()
+        if denoise_strength != "none":
+            jasna_command.extend(["--denoise", denoise_strength])
+        
         # Add compilation options
         if not self.compile_tensorrt_var.get():
             jasna_command.extend(["--no-compile-tensorrt"])
@@ -816,12 +906,17 @@ class MosaicRemoverApp:
             # Add Swin2SR specific options
             if secondary_restoration == "swin2sr":
                 jasna_command.extend(["--swin2sr-batch-size", self.swin2sr_batch_size_var.get()])
+                # Add Swin2SR compilation option (NEW)
+                if not self.swin2sr_compilation_var.get():
+                    jasna_command.append("--no-swin2sr-compilation")
             
-            # Add TVAI specific options - FIXED: Use new CLI parameters
+            # Add TVAI specific options
             elif secondary_restoration == "tvai":
                 jasna_command.extend(["--tvai-ffmpeg-path", self.tvai_ffmpeg_path_var.get()])
                 jasna_command.extend(["--tvai-model", self.tvai_model_var.get()])
                 jasna_command.extend(["--tvai-scale", self.tvai_scale_var.get()])
+                # Add TVAI workers (NEW)
+                jasna_command.extend(["--tvai-workers", self.tvai_workers_var.get()])
                 # Only pass extra args if not empty
                 tvai_args = self.tvai_args_var.get().strip()
                 if tvai_args:
@@ -975,6 +1070,7 @@ class MosaicRemoverApp:
             'video_path': input_file,
             'model': self.model_var.get(),
             'fp16': self.fp16_var.get(),
+            'batch_size': int(self.batch_size_var.get()),  # NEW
             'max_clip_size': int(self.max_clip_size_var.get()),
             'temporal_overlap': int(self.temporal_overlap_var.get()),
             'detection_score_threshold': float(self.detection_score_threshold_var.get()),
@@ -982,12 +1078,15 @@ class MosaicRemoverApp:
             'encoder_settings': self.encoder_settings_var.get(),
             'compile_tensorrt': self.compile_tensorrt_var.get(),
             'compile_basicvsrpp': self.compile_basicvsrpp_var.get(),
-            # NEW: Add secondary restoration settings to queue
+            'compile_swin2sr': self.swin2sr_compilation_var.get(),  # NEW
+            'denoise': self.denoise_var.get(),  # NEW
+            'enable_crossfade': self.enable_crossfade_var.get(),  # NEW
             'secondary_restoration': self.secondary_restoration_var.get(),
             'swin2sr_batch_size': int(self.swin2sr_batch_size_var.get()) if self.secondary_restoration_var.get() == "swin2sr" else 8,
             'tvai_ffmpeg_path': self.tvai_ffmpeg_path_var.get(),
             'tvai_model': self.tvai_model_var.get(),
             'tvai_scale': int(self.tvai_scale_var.get()),
+            'tvai_workers': int(self.tvai_workers_var.get()),  # NEW
             'tvai_args': self.tvai_args_var.get(),
             'start_frame': self.start_frame,
             'end_frame': min(self.end_frame, total_frames),
@@ -1091,6 +1190,7 @@ class MosaicRemoverApp:
                 save_trimmed = 'Save' if entry['save_trimmed'] else 'Don\'t save'
                 crf_value = entry.get('crf_value', 19)
                 fp16 = 'FP16' if entry.get('fp16', True) else 'No FP16'
+                batch_size = entry.get('batch_size', 4)  # NEW
                 max_clip_size = entry.get('max_clip_size', 30)
                 temporal_overlap = entry.get('temporal_overlap', 8)
                 detection_score_threshold = entry.get('detection_score_threshold', 0.2)
@@ -1098,10 +1198,14 @@ class MosaicRemoverApp:
                 encoder_settings = entry.get('encoder_settings', '')
                 compile_tensorrt = 'TensorRT' if entry.get('compile_tensorrt', True) else 'No TensorRT'
                 compile_basicvsrpp = 'BasicVSR++' if entry.get('compile_basicvsrpp', True) else 'No BasicVSR++'
+                compile_swin2sr = 'Swin2SR' if entry.get('compile_swin2sr', True) else 'No Swin2SR'  # NEW
+                denoise = entry.get('denoise', 'none')  # NEW
+                enable_crossfade = 'Crossfade' if entry.get('enable_crossfade', True) else 'No Crossfade'  # NEW
                 secondary_restoration = entry.get('secondary_restoration', 'none')
                 swin2sr_batch_size = entry.get('swin2sr_batch_size', 8)
                 tvai_model = entry.get('tvai_model', 'iris-2')
                 tvai_scale = entry.get('tvai_scale', 4)
+                tvai_workers = entry.get('tvai_workers', 2)  # NEW
                 vr_mode = 'VR' if entry.get('vr_processing', False) else '2D'
                 simple_mode = 'Simple' if entry.get('vr_simple_mode', False) else 'Normal'
                 
@@ -1113,12 +1217,13 @@ class MosaicRemoverApp:
                 # Build display text with all parameters
                 display_text = (f"{i+1}. {filename}, Model:{model_label}, "
                                f"{range_display}, FFmpeg:{ffmpeg_display}, CRF:{crf_value}, "
-                               f"FP16:{fp16}, Clip:{max_clip_size}, Overlap:{temporal_overlap}, "
+                               f"FP16:{fp16}, Batch:{batch_size}, Clip:{max_clip_size}, Overlap:{temporal_overlap}, "
                                f"DetectThresh:{detection_score_threshold}, Codec:{codec}, "
                                f"Encoder:{encoder_settings[:20] if encoder_settings else 'default'}, "
                                f"TensorRT:{compile_tensorrt}, BasicVSR++:{compile_basicvsrpp}, "
+                               f"Swin2SR:{compile_swin2sr}, Denoise:{denoise}, Crossfade:{enable_crossfade}, "
                                f"2ndRestore:{secondary_restoration}, "
-                               f"TVAI:{tvai_model}:{tvai_scale}, "
+                               f"TVAI:{tvai_model}:{tvai_scale}:Workers:{tvai_workers}, "
                                f"SaveTrim:{save_trimmed}, Mode:{vr_mode}, VRMode:{simple_mode}")
                 self.queue_listbox.insert(tk.END, display_text)
             except Exception as e:
@@ -1164,9 +1269,11 @@ class MosaicRemoverApp:
         self.save_config()
 
     def load_config(self):
-        fp16_loaded = False  # Track if fp16 was loaded from config
-        compile_tensorrt_loaded = False  # Track if compile_tensorrt was loaded from config
-        compile_basicvsrpp_loaded = False  # Track if compile_basicvsrpp was loaded from config
+        fp16_loaded = False
+        compile_tensorrt_loaded = False
+        compile_basicvsrpp_loaded = False
+        compile_swin2sr_loaded = False  # NEW
+        enable_crossfade_loaded = False  # NEW
         
         if os.path.exists(self.config_file):
             try:
@@ -1196,26 +1303,31 @@ class MosaicRemoverApp:
                             if opt in valid_options:
                                 self.cli_options["ffmpeg_option"] = opt
                                 self.ffmpeg_option_var.set(opt)
-                        elif line.startswith("fp16="):  # Load FP16 setting
+                        elif line.startswith("fp16="):
                             fp16_val = line.split("=")[1]
-                            fp16_loaded = True  # Mark that fp16 was loaded
+                            fp16_loaded = True
                             if fp16_val.lower() == "true":
                                 self.cli_options["fp16"] = True
                                 self.fp16_var.set(True)
                             elif fp16_val.lower() == "false":
                                 self.cli_options["fp16"] = False
                                 self.fp16_var.set(False)
-                        elif line.startswith("max_clip_size="):  # Load max clip size
+                        elif line.startswith("batch_size="):  # NEW: Load batch size
+                            batch_size = line.split("=")[1]
+                            if batch_size.isdigit() and 1 <= int(batch_size) <= 32:
+                                self.cli_options["batch_size"] = batch_size
+                                self.batch_size_var.set(batch_size)
+                        elif line.startswith("max_clip_size="):
                             max_clip_size = line.split("=")[1]
                             if max_clip_size.isdigit() and 1 <= int(max_clip_size) <= 300:
                                 self.cli_options["max_clip_size"] = max_clip_size
                                 self.max_clip_size_var.set(max_clip_size)
-                        elif line.startswith("temporal_overlap="):  # Load temporal overlap
+                        elif line.startswith("temporal_overlap="):
                             temporal_overlap = line.split("=")[1]
                             if temporal_overlap.isdigit() and 0 <= int(temporal_overlap) <= 20:
                                 self.cli_options["temporal_overlap"] = temporal_overlap
                                 self.temporal_overlap_var.set(temporal_overlap)
-                        elif line.startswith("detection_score_threshold="):  # Load detection score threshold
+                        elif line.startswith("detection_score_threshold="):
                             threshold = line.split("=")[1]
                             try:
                                 threshold_val = float(threshold)
@@ -1224,20 +1336,17 @@ class MosaicRemoverApp:
                                     self.detection_score_threshold_var.set(threshold)
                             except ValueError:
                                 pass
-                        elif line.startswith("codec="):  # Load codec
+                        elif line.startswith("codec="):
                             codec_val = line.split("=")[1]
                             if codec_val.lower() == "hevc":
                                 self.cli_options["codec"] = codec_val
                                 self.codec_var.set(codec_val)
-                        elif line.startswith("encoder_settings="):  # Load encoder settings
-                            # Split only on the first '=' to handle values with '=' in them
+                        elif line.startswith("encoder_settings="):
                             parts = line.split("=", 1)
                             if len(parts) == 2:
                                 encoder_settings_val = parts[1]
                                 self.cli_options["encoder_settings"] = encoder_settings_val
                                 self.encoder_settings_var.set(encoder_settings_val)
-                        
-                        # NEW: Load secondary restoration settings
                         elif line.startswith("secondary_restoration="):
                             sec_rest = line.split("=")[1]
                             if sec_rest in ["none", "swin2sr", "tvai"]:
@@ -1248,15 +1357,22 @@ class MosaicRemoverApp:
                             if batch_size.isdigit() and 1 <= int(batch_size) <= 32:
                                 self.cli_options["swin2sr_batch_size"] = batch_size
                                 self.swin2sr_batch_size_var.set(batch_size)
+                        elif line.startswith("swin2sr_compilation="):  # NEW: Load Swin2SR compilation
+                            swin2sr_comp_val = line.split("=")[1]
+                            compile_swin2sr_loaded = True
+                            if swin2sr_comp_val.lower() == "true":
+                                self.cli_options["swin2sr_compilation"] = True
+                                self.swin2sr_compilation_var.set(True)
+                            elif swin2sr_comp_val.lower() == "false":
+                                self.cli_options["swin2sr_compilation"] = False
+                                self.swin2sr_compilation_var.set(False)
                         elif line.startswith("tvai_ffmpeg_path="):
-                            # Split only on first '=' to handle paths with '='
                             parts = line.split("=", 1)
                             if len(parts) == 2:
                                 tvai_path = parts[1]
                                 self.cli_options["tvai_ffmpeg_path"] = tvai_path
                                 self.tvai_ffmpeg_path_var.set(tvai_path)
                         elif line.startswith("tvai_model="):
-                            # Split only on first '=' to handle model names with '='
                             parts = line.split("=", 1)
                             if len(parts) == 2:
                                 tvai_model = parts[1]
@@ -1267,8 +1383,12 @@ class MosaicRemoverApp:
                             if scale in ["1", "2", "4"]:
                                 self.cli_options["tvai_scale"] = scale
                                 self.tvai_scale_var.set(scale)
+                        elif line.startswith("tvai_workers="):  # NEW: Load TVAI workers
+                            workers = line.split("=")[1]
+                            if workers.isdigit() and 1 <= int(workers) <= 8:
+                                self.cli_options["tvai_workers"] = workers
+                                self.tvai_workers_var.set(workers)
                         elif line.startswith("tvai_args="):
-                            # Split only on first '=' to handle args with '='
                             parts = line.split("=", 1)
                             if len(parts) == 2:
                                 tvai_args = parts[1]
@@ -1276,7 +1396,7 @@ class MosaicRemoverApp:
                                 self.tvai_args_var.set(tvai_args)
                         elif line.startswith("compile_tensorrt="):
                             tensorrt_val = line.split("=")[1]
-                            compile_tensorrt_loaded = True  # Mark that compile_tensorrt was loaded
+                            compile_tensorrt_loaded = True
                             if tensorrt_val.lower() == "true":
                                 self.cli_options["compile_tensorrt"] = True
                                 self.compile_tensorrt_var.set(True)
@@ -1285,13 +1405,27 @@ class MosaicRemoverApp:
                                 self.compile_tensorrt_var.set(False)
                         elif line.startswith("compile_basicvsrpp="):
                             basicvsrpp_val = line.split("=")[1]
-                            compile_basicvsrpp_loaded = True  # Mark that compile_basicvsrpp was loaded
+                            compile_basicvsrpp_loaded = True
                             if basicvsrpp_val.lower() == "true":
                                 self.cli_options["compile_basicvsrpp"] = True
                                 self.compile_basicvsrpp_var.set(True)
                             elif basicvsrpp_val.lower() == "false":
                                 self.cli_options["compile_basicvsrpp"] = False
                                 self.compile_basicvsrpp_var.set(False)
+                        elif line.startswith("denoise="):  # NEW: Load denoise setting
+                            denoise_val = line.split("=")[1]
+                            if denoise_val in ["none", "low", "medium", "high"]:
+                                self.cli_options["denoise"] = denoise_val
+                                self.denoise_var.set(denoise_val)
+                        elif line.startswith("enable_crossfade="):  # NEW: Load crossfade setting
+                            crossfade_val = line.split("=")[1]
+                            enable_crossfade_loaded = True
+                            if crossfade_val.lower() == "true":
+                                self.cli_options["enable_crossfade"] = True
+                                self.enable_crossfade_var.set(True)
+                            elif crossfade_val.lower() == "false":
+                                self.cli_options["enable_crossfade"] = False
+                                self.enable_crossfade_var.set(False)
             except Exception as e:
                 self.write_log(f"Failed to load config file: {e}")
                 messagebox.showwarning("Warning", f"Failed to load config file: {e}. Continuing with default values.")
@@ -1315,6 +1449,14 @@ class MosaicRemoverApp:
             self.compile_basicvsrpp_var.set(True)
             self.cli_options["compile_basicvsrpp"] = True
         
+        if not compile_swin2sr_loaded:  # NEW
+            self.swin2sr_compilation_var.set(True)
+            self.cli_options["swin2sr_compilation"] = True
+        
+        if not enable_crossfade_loaded:  # NEW
+            self.enable_crossfade_var.set(True)
+            self.cli_options["enable_crossfade"] = True
+        
         # Update UI based on loaded secondary restoration
         self.root.after(100, lambda: self.on_secondary_restoration_change())
 
@@ -1327,22 +1469,25 @@ class MosaicRemoverApp:
                 f.write(f"output_dir={self.output_dir}\n")
                 f.write(f"ffmpeg_option={self.ffmpeg_option_var.get()}\n")
                 f.write(f"fp16={str(self.fp16_var.get()).lower()}\n")
+                f.write(f"batch_size={self.batch_size_var.get()}\n")  # NEW
                 f.write(f"max_clip_size={self.max_clip_size_var.get()}\n")
                 f.write(f"temporal_overlap={self.temporal_overlap_var.get()}\n")
                 f.write(f"detection_score_threshold={self.detection_score_threshold_var.get()}\n")
                 f.write(f"codec={self.codec_var.get()}\n")
-                # FIXED: Properly save encoder settings (could contain '=' characters)
-                encoder_settings = self.encoder_settings_var.get()
-                f.write(f"encoder_settings={encoder_settings}\n")
+                f.write(f"encoder_settings={self.encoder_settings_var.get()}\n")
                 f.write(f"compile_tensorrt={str(self.compile_tensorrt_var.get()).lower()}\n")
                 f.write(f"compile_basicvsrpp={str(self.compile_basicvsrpp_var.get()).lower()}\n")
+                f.write(f"swin2sr_compilation={str(self.swin2sr_compilation_var.get()).lower()}\n")  # NEW
+                f.write(f"denoise={self.denoise_var.get()}\n")  # NEW
+                f.write(f"enable_crossfade={str(self.enable_crossfade_var.get()).lower()}\n")  # NEW
                 
-                # NEW: Save secondary restoration settings
+                # Save secondary restoration settings
                 f.write(f"secondary_restoration={self.secondary_restoration_var.get()}\n")
                 f.write(f"swin2sr_batch_size={self.swin2sr_batch_size_var.get()}\n")
                 f.write(f"tvai_ffmpeg_path={self.tvai_ffmpeg_path_var.get()}\n")
                 f.write(f"tvai_model={self.tvai_model_var.get()}\n")
                 f.write(f"tvai_scale={self.tvai_scale_var.get()}\n")
+                f.write(f"tvai_workers={self.tvai_workers_var.get()}\n")  # NEW
                 f.write(f"tvai_args={self.tvai_args_var.get()}\n")
         except Exception as e:
             self.write_log(f"Failed to save config file: {e}")
@@ -1415,6 +1560,7 @@ class MosaicRemoverApp:
                 'video_path': file_path,
                 'model': self.model_var.get(),
                 'fp16': self.fp16_var.get(),
+                'batch_size': int(self.batch_size_var.get()),  # NEW
                 'max_clip_size': int(self.max_clip_size_var.get()),
                 'temporal_overlap': int(self.temporal_overlap_var.get()),
                 'detection_score_threshold': float(self.detection_score_threshold_var.get()),
@@ -1422,12 +1568,15 @@ class MosaicRemoverApp:
                 'encoder_settings': self.encoder_settings_var.get(),
                 'compile_tensorrt': self.compile_tensorrt_var.get(),
                 'compile_basicvsrpp': self.compile_basicvsrpp_var.get(),
-                # NEW: Add secondary restoration settings to queue
+                'compile_swin2sr': self.swin2sr_compilation_var.get(),  # NEW
+                'denoise': self.denoise_var.get(),  # NEW
+                'enable_crossfade': self.enable_crossfade_var.get(),  # NEW
                 'secondary_restoration': self.secondary_restoration_var.get(),
                 'swin2sr_batch_size': int(self.swin2sr_batch_size_var.get()) if self.secondary_restoration_var.get() == "swin2sr" else 8,
                 'tvai_ffmpeg_path': self.tvai_ffmpeg_path_var.get(),
                 'tvai_model': self.tvai_model_var.get(),
                 'tvai_scale': int(self.tvai_scale_var.get()),
+                'tvai_workers': int(self.tvai_workers_var.get()),  # NEW
                 'tvai_args': self.tvai_args_var.get(),
                 'start_frame': 0,
                 'end_frame': total_frames,
@@ -1605,6 +1754,16 @@ class MosaicRemoverApp:
             messagebox.showerror("Error", "Specified video file does not exist.")
             return False
         
+        # Validate batch size
+        try:
+            batch_size = int(self.batch_size_var.get())
+            if batch_size <= 0:
+                messagebox.showerror("Error", "--batch-size must be > 0")
+                return False
+        except ValueError:
+            messagebox.showerror("Error", "Batch Size must be an integer")
+            return False
+        
         # Validate max clip size
         try:
             max_clip_size = int(self.max_clip_size_var.get())
@@ -1623,6 +1782,9 @@ class MosaicRemoverApp:
                 return False
             if temporal_overlap >= max_clip_size:
                 messagebox.showerror("Error", "--temporal-overlap must be < --max-clip-size")
+                return False
+            if temporal_overlap > 0 and (2 * temporal_overlap) >= max_clip_size:
+                messagebox.showerror("Error", "--temporal-overlap must satisfy 2*--temporal-overlap < --max-clip-size")
                 return False
         except ValueError:
             messagebox.showerror("Error", "Temporal Overlap must be an integer")
@@ -1644,7 +1806,7 @@ class MosaicRemoverApp:
             messagebox.showerror("Error", f"Unsupported codec: {codec} (only hevc supported)")
             return False
         
-        # NEW: Validate secondary restoration settings
+        # Validate secondary restoration settings
         try:
             # Validate Swin2SR batch size if selected
             if self.secondary_restoration_var.get() == "swin2sr":
@@ -1677,6 +1839,12 @@ class MosaicRemoverApp:
                 if tvai_scale not in [1, 2, 4]:
                     messagebox.showerror("Error", "TVAI scale must be 1, 2, or 4")
                     return False
+                
+                # Validate TVAI workers
+                tvai_workers = int(self.tvai_workers_var.get())
+                if tvai_workers <= 0:
+                    messagebox.showerror("Error", "--tvai-workers must be > 0")
+                    return False
         except ValueError:
             messagebox.showerror("Error", "Invalid numeric value in TVAI settings")
             return False
@@ -1691,7 +1859,7 @@ class MosaicRemoverApp:
                 messagebox.showerror("Error", "Range specification is not allowed when 'As-is (No trimming)' is selected.")
                 return False
         
-        # NEW: Warn about copy modes with range
+        # Warn about copy modes with range
         if option in ["copy", "copy_genpts"] and is_range_specified:
             if not messagebox.askyesno("Warning", 
                 "Copy modes (-c copy) may not trim accurately.\n\n"
