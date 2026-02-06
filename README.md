@@ -10,7 +10,7 @@ run ```python jasna.py``` or !GUI.bat (for Windows release only)
 
 drag and drop is supported, VR mode not supported!
 
-I didn't tested TVAI since don't have it (I have Topaz Video version which don't supports CLI)! Swin2SR is too slow and not worth your time!
+Keep in mind that newer Topaz Video version (without AI in name) don't supports CLI! Swin2SR is too slow and not worth your time!
 
 don't change default clip size (use same value which was used at first jasna run when onnx model was converted to engine)
 
