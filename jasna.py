@@ -20,7 +20,7 @@ import glob
 class MosaicRemoverApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("JASNA GUI 20260206 for jasna 0.4-rc3")
+        self.root.title("JASNA GUI 20260212 for jasna 0.5-alpha2")
         self.root.geometry("1220x1000")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
@@ -32,8 +32,8 @@ class MosaicRemoverApp:
             # When running as a normal Python script
             self.script_dir = os.path.dirname(os.path.abspath(__file__))
         
-        # Set path to jasna.exe
-        self.jasna_path = os.path.join(self.script_dir, "jasna.exe")
+        # Set path to jasna-cli.exe
+        self.jasna_path = os.path.join(self.script_dir, "jasna-cli.exe")
         self.output_dir = os.path.join(self.script_dir, "output")
         self.log_file = os.path.join(self.script_dir, "LOG_JASNA_GUI.txt")
         
@@ -160,9 +160,9 @@ class MosaicRemoverApp:
             self.tvai_stabilization_models
         )))
         
-        # Check if jasna.exe exists
+        # Check if jasna-cli.exe exists
         if not os.path.exists(self.jasna_path):
-            messagebox.showerror("Error", "jasna.exe not found.")
+            messagebox.showerror("Error", "jasna-cli.exe not found.")
             self.jasna_path = None
         
         if not os.path.exists(self.output_dir):
@@ -846,7 +846,7 @@ class MosaicRemoverApp:
 
     def run_jasna(self, input_file, unique_id):
         if not self.jasna_path or not os.path.exists(self.jasna_path):
-            raise FileNotFoundError(f"jasna.exe not found: {self.jasna_path}")
+            raise FileNotFoundError(f"jasna-cli.exe not found: {self.jasna_path}")
         
         input_basename = os.path.splitext(os.path.basename(input_file))[0]
         output_file_temp = os.path.join(self.output_dir, f"{input_basename}_jasna_temp_{unique_id}.mp4")
@@ -860,7 +860,7 @@ class MosaicRemoverApp:
             self.jasna_path,
             "--input", input_file,
             "--output", output_file_temp,
-            "--detection-model", "rfdetr",
+            "--detection-model", "rfdetr-v3",
             "--detection-model-path", detect_model_path,
             "--device", "cuda:0",
             "--batch-size", self.batch_size_var.get(),  # NEW: batch-size
@@ -978,7 +978,7 @@ class MosaicRemoverApp:
             if not self.is_running:
                 self.write_log("JASNA processing interrupted by user.")
             else:
-                raise Exception(f"jasna.exe execution failed (exit code: {return_code})")
+                raise Exception(f"jasna-cli.exe execution failed (exit code: {return_code})")
         
         self.console_text.config(state=tk.NORMAL)
         self.console_text.insert(tk.END, "JASNA processing completed.\n")
