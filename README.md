@@ -1,6 +1,6 @@
-don't use it for jasna newer than v0.4-rc3 since its developer created own GUI and renamed jasna.exe (CLI) file to jasna-cli.exe!
+don't use it for jasna older than v0.4.1 since its developer created own GUI and renamed jasna.exe (CLI) file to jasna-cli.exe!
 
-compiled to exe version https://pixeldrain.com/u/SHZuhDvu
+compiled to exe version https://pixeldrain.com/u/kgxDvDxx
 ```
 pip install tkinterdnd2
 ```
