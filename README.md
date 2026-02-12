@@ -8,7 +8,7 @@ put jasna.py near jasna.exe
 
 run ```python jasna.py``` or !GUI.bat (for Windows release only)
 
-<img width="1220" height="999" alt="image" src="https://github.com/user-attachments/assets/84932cf7-76b0-4191-b37d-54546d46723d" />
+<img width="1219" height="1027" alt="image" src="https://github.com/user-attachments/assets/cfbb19a7-2ae4-426a-994b-66bb4d126a5b" />
 
 drag and drop is supported, VR mode not supported!
 
