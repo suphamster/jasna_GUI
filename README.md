@@ -4,7 +4,7 @@ compiled to exe version https://pixeldrain.com/u/kgxDvDxx
 ```
 pip install tkinterdnd2
 ```
-put jasna.py near jasna.exe
+put jasna.py near jasna-cli.exe
 
 run ```python jasna.py``` or !GUI.bat (for Windows release only)
 
